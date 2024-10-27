@@ -1,0 +1,29 @@
+select * from dhc_master_input_table where "SearchPageUrl" like '%bswhealth%'; 
+
+select distinct ("RawFullName"),count("RawFullName"), "DoctorUrl"  
+from dhc_master_input_table where "SearchPageUrl" like '%hf.org%' 
+group by "RawFullName","DoctorUrl" order by count("RawFullName") desc;
+
+--data from the MinCrawler
+select * from mc_output_table mot where domain_id ='208';
+select distinct dhc_id ,domain_id,count(profile_urls)  from mc_output_table mot where domain_id ='699' group by dhc_id,domain_id;
+
+--into the ZYTE 
+select * from DHC_master_table WHERE gencrawl_status IS null AND domain_url = 'ukhealthcare.uky.edu';
+
+--the cached links from UC
+select *  from public.dhc_master_table where domain_id  ='208';
+
+--the master status table
+select * from dhc_master_status_table dmst where domain_id ='827';
+
+
+--standardization queue ---------
+select dhc_id  ,domain_id, website ,count( distinct doctor_url) from dhc_gencrawl_parsed_output
+where
+standardize_status is null group by dhc_id ,domain_id , website;
+
+select * from dhc_gencrawl_parsed_output where website like '%dchc.org%';
+
+select * from delivered_dhcgencrawl_0305 where "DHC_ID" ='1005'
+
