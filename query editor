@@ -1,29 +1,237 @@
-select * from dhc_master_input_table where "SearchPageUrl" like '%bswhealth%'; 
+-- Query 1: Using a CTE and window function to get the latest transaction per account
+WITH RankedTransactions AS (
+    SELECT
+        transaction_id,
+        account_id,
+        transaction_date,
+        amount,
+        RANK() OVER (PARTITION BY account_id ORDER BY transaction_date DESC) AS rn
+    FROM transactions
+)
+SELECT *
+FROM RankedTransactions
+WHERE rn = 1;
 
-select distinct ("RawFullName"),count("RawFullName"), "DoctorUrl"  
-from dhc_master_input_table where "SearchPageUrl" like '%hf.org%' 
-group by "RawFullName","DoctorUrl" order by count("RawFullName") desc;
+-- Query 2: Aggregating transactions for accounts over a specific date range with conditions
+SELECT 
+    a.account_id,
+    a.account_name,
+    SUM(t.amount) AS total_amount,
+    AVG(t.amount) AS avg_transaction
+FROM accounts a
+JOIN transactions t ON a.account_id = t.account_id
+WHERE t.transaction_date BETWEEN '2023-01-01' AND '2023-12-31'
+GROUP BY a.account_id, a.account_name
+HAVING SUM(t.amount) > 100000;
 
---data from the MinCrawler
-select * from mc_output_table mot where domain_id ='208';
-select distinct dhc_id ,domain_id,count(profile_urls)  from mc_output_table mot where domain_id ='699' group by dhc_id,domain_id;
+-- Query 3: Pivot query to show monthly transaction totals for securities (SQL Server syntax)
+SELECT *
+FROM (
+    SELECT
+        security_id,
+        FORMAT(transaction_date, 'yyyy-MM') AS TransactionMonth,
+        amount
+    FROM transactions
+    WHERE security_id IS NOT NULL
+) AS SourceTable
+PIVOT (
+    SUM(amount)
+    FOR TransactionMonth IN ([2023-01],[2023-02],[2023-03],[2023-04],[2023-05],[2023-06],
+                               [2023-07],[2023-08],[2023-09],[2023-10],[2023-11],[2023-12])
+) AS PivotTable;
 
---into the ZYTE 
-select * from DHC_master_table WHERE gencrawl_status IS null AND domain_url = 'ukhealthcare.uky.edu';
+-- Query 4: Recursive CTE to generate a date series and calculate daily total transactions
+WITH DateSeries AS (
+    SELECT CAST('2023-01-01' AS DATE) AS dt
+    UNION ALL
+    SELECT DATEADD(DAY, 1, dt)
+    FROM DateSeries
+    WHERE dt < '2023-01-31'
+)
+SELECT 
+    dt, 
+    (SELECT SUM(amount) FROM transactions WHERE transaction_date = dt) AS daily_total
+FROM DateSeries
+OPTION (MAXRECURSION 0);
 
---the cached links from UC
-select *  from public.dhc_master_table where domain_id  ='208';
+-- Query 5: Using window functions to calculate a 5-day moving average and volatility for stock prices
+SELECT
+    symbol,
+    trade_date,
+    price,
+    AVG(price) OVER (
+        PARTITION BY symbol 
+        ORDER BY trade_date 
+        ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+    ) AS moving_avg,
+    STDDEV(price) OVER (
+        PARTITION BY symbol 
+        ORDER BY trade_date 
+        ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+    ) AS moving_stddev
+FROM stock_prices
+WHERE symbol = 'AAPL';
 
---the master status table
-select * from dhc_master_status_table dmst where domain_id ='827';
+-- Query 6: Stored procedure to get an account summary with transaction count and total amount
+CREATE PROCEDURE GetAccountSummary
+    @AccountID INT
+AS
+BEGIN
+    SELECT 
+        a.account_id,
+        a.account_name,
+        (SELECT COUNT(*) FROM transactions t WHERE t.account_id = a.account_id) AS transaction_count,
+        (SELECT SUM(amount) FROM transactions t WHERE t.account_id = a.account_id) AS total_amount
+    FROM accounts a
+    WHERE a.account_id = @AccountID;
+END;
+
+-- Query 7: Trigger to log every insert into the transactions table into an audit table
+CREATE TRIGGER trg_AfterTransactionInsert
+ON transactions
+AFTER INSERT
+AS
+BEGIN
+    INSERT INTO transaction_audit (
+        transaction_id, 
+        account_id, 
+        amount, 
+        transaction_date, 
+        action, 
+        audit_date
+    )
+    SELECT 
+        i.transaction_id, 
+        i.account_id, 
+        i.amount, 
+        i.transaction_date, 
+        'INSERT', 
+        GETDATE()
+    FROM inserted i;
+END;
 
 
---standardization queue ---------
-select dhc_id  ,domain_id, website ,count( distinct doctor_url) from dhc_gencrawl_parsed_output
-where
-standardize_status is null group by dhc_id ,domain_id , website;
+-- Query 8: Calculate outstanding loan balance by subtracting cumulative repayments using window functions
+WITH RepaymentCTE AS (
+    SELECT
+        loan_id,
+        repayment_date,
+        amount,
+        SUM(amount) OVER (PARTITION BY loan_id ORDER BY repayment_date) AS cumulative_repayment
+    FROM repayments
+)
+SELECT
+    l.loan_id,
+    l.principal_amount,
+    ISNULL(r.cumulative_repayment, 0) AS total_repaid,
+    l.principal_amount - ISNULL(r.cumulative_repayment, 0) AS outstanding_balance
+FROM loans l
+LEFT JOIN (
+    SELECT loan_id, MAX(cumulative_repayment) AS cumulative_repayment
+    FROM RepaymentCTE
+    GROUP BY loan_id
+) r ON l.loan_id = r.loan_id;
 
-select * from dhc_gencrawl_parsed_output where website like '%dchc.org%';
+-- Query 9: Extract revenue and profit values from a JSON column in financial reports (SQL Server example)
+SELECT
+    report_id,
+    JSON_VALUE(report_data, '$.revenue') AS revenue,
+    JSON_VALUE(report_data, '$.profit') AS profit
+FROM financial_reports;
 
-select * from delivered_dhcgencrawl_0305 where "DHC_ID" ='1005'
+-- Query 10: Aggregate revenue and expenses using GROUPING SETS for various dimensions in a financial summary
+SELECT
+    region,
+    department,
+    SUM(revenue) AS total_revenue,
+    SUM(expense) AS total_expense
+FROM financial_summary
+GROUP BY GROUPING SETS (
+    (region, department),
+    (region),
+    (department),
+    ()
+);
+
+-- Query 11: Calculate the cumulative trading volume for each stock symbol over time using a window function
+SELECT
+    symbol,
+    trade_date,
+    volume,
+    SUM(volume) OVER (PARTITION BY symbol ORDER BY trade_date) AS cumulative_volume
+FROM market_trades;
+
+-- Query 12: List each account with its highest transaction amount using a correlated subquery
+SELECT
+    a.account_id,
+    a.account_name,
+    (SELECT MAX(amount) FROM transactions t WHERE t.account_id = a.account_id) AS max_transaction_amount
+FROM accounts a;
+
+-- Query 13: Create a user-defined function to calculate compound interest (SQL Server syntax)
+CREATE FUNCTION dbo.CalculateCompoundInterest
+(
+    @principal DECIMAL(18,2),
+    @rate DECIMAL(5,4),
+    @years INT
+)
+RETURNS DECIMAL(18,2)
+AS
+BEGIN
+    RETURN @principal * POWER((1 + @rate), @years);
+END;
+
+-- Query 14: Compare each day's closing price with the previous and next day using LAG and LEAD window functions
+SELECT
+    symbol,
+    trade_date,
+    close_price,
+    LAG(close_price) OVER (PARTITION BY symbol ORDER BY trade_date) AS previous_close,
+    LEAD(close_price) OVER (PARTITION BY symbol ORDER BY trade_date) AS next_close
+FROM stock_prices;
+
+-- Query 15: Retrieve an account hierarchy using a recursive CTE for parent-child relationships
+WITH AccountHierarchy AS (
+    SELECT
+        account_id,
+        parent_account_id,
+        account_name,
+        0 AS level
+    FROM accounts
+    WHERE parent_account_id IS NULL
+    UNION ALL
+    SELECT
+        a.account_id,
+        a.parent_account_id,
+        a.account_name,
+        ah.level + 1
+    FROM accounts a
+    INNER JOIN AccountHierarchy ah ON a.parent_account_id = ah.account_id
+)
+SELECT * FROM AccountHierarchy;
+
+-- Query 16: Use a MERGE statement to upsert portfolio data from a staging table into the main portfolio table
+MERGE INTO portfolio AS target
+USING portfolio_staging AS source
+ON target.portfolio_id = source.portfolio_id
+WHEN MATCHED THEN
+    UPDATE SET
+        target.asset_value = source.asset_value,
+        target.last_updated = GETDATE()
+WHEN NOT MATCHED BY TARGET THEN
+    INSERT (portfolio_id, asset_value, last_updated)
+    VALUES (source.portfolio_id, source.asset_value, GETDATE());
+
+-- Query 17: Produce a comprehensive financial report by joining accounts, transactions, and securities
+SELECT
+    a.account_id,
+    a.account_name,
+    s.security_name,
+    t.transaction_date,
+    t.amount,
+    t.transaction_type
+FROM accounts a
+JOIN transactions t ON a.account_id = t.account_id
+JOIN securities s ON t.security_id = s.security_id
+WHERE t.transaction_date BETWEEN '2023-01-01' AND '2023-12-31';
 
